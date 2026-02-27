@@ -6,6 +6,7 @@ import { CostChart } from './CostChart.js';
 import { ServiceBreakdown } from './ServiceBreakdown.js';
 import { MemberTable } from './MemberTable.js';
 import { ServiceStatus } from './ServiceStatus.js';
+import { CsvUpload } from './CsvUpload.js';
 import { useUsageData } from '../hooks/useUsageData.js';
 import type { DateRange } from '../types/index.js';
 import { AlertTriangle, Loader, Info } from 'lucide-react';
@@ -29,14 +30,17 @@ export function Dashboard() {
 
       <div className="dashboard-controls">
         <DateRangePicker dateRange={dateRange} onChange={setDateRange} />
-        <ServiceStatus />
+        <div className="dashboard-controls-right">
+          <ServiceStatus />
+          <CsvUpload onUploadComplete={refresh} />
+        </div>
       </div>
 
       {sampleData && (
         <div className="sample-data-banner">
           <Info size={14} />
           <span>
-            Showing sample data — configure API keys in your Railway environment variables to display real usage.
+            Showing sample data — configure API keys or upload CSV files to display real usage.
           </span>
         </div>
       )}

@@ -3,13 +3,31 @@ import type { UsageRecord, TeamMember } from '../../src/types/index.js';
 
 const BASE_URL = 'https://api.openai.com/v1';
 
+// --- Admin API types ---
+
+interface OrgUser {
+  object: string;
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+interface OrgUserListResponse {
+  object: string;
+  data: OrgUser[];
+  has_more: boolean;
+  first_id?: string;
+  last_id?: string;
+}
+
+// --- Usage API types ---
+
 interface UsageResult {
   object: string;
   input_tokens: number;
   output_tokens: number;
   input_cached_tokens?: number;
-  input_audio_tokens?: number;
-  output_audio_tokens?: number;
   num_model_requests: number;
   project_id?: string;
   user_id?: string;
@@ -55,6 +73,79 @@ function estimateCost(
   );
 }
 
+// Custom params serializer for array query params
+function serializeParams(params: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        parts.push(`${key}=${encodeURIComponent(String(v))}`);
+      }
+    } else if (value !== undefined && value !== null) {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+  }
+  return parts.join('&');
+}
+
+/**
+ * Match an OpenAI org user to a team member by name or email.
+ */
+function matchUserToMember(
+  user: { name: string; email: string },
+  members: TeamMember[]
+): TeamMember | undefined {
+  if (user.email) {
+    const byEmail = members.find(
+      (m) => m.email && m.email.toLowerCase() === user.email.toLowerCase()
+    );
+    if (byEmail) return byEmail;
+  }
+
+  const normalizedApiName = user.name.toLowerCase().trim();
+  return members.find((m) => {
+    const normalizedMemberName = m.name.toLowerCase().trim();
+    return (
+      normalizedMemberName === normalizedApiName ||
+      normalizedApiName.includes(normalizedMemberName) ||
+      normalizedMemberName.includes(normalizedApiName)
+    );
+  });
+}
+
+/**
+ * Fetch all org users and build a user_id -> TeamMember map.
+ */
+async function buildUserMap(
+  apiKey: string,
+  orgId: string | undefined,
+  members: TeamMember[]
+): Promise<Map<string, TeamMember>> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (orgId) headers['OpenAI-Organization'] = orgId;
+
+  const response = await axios.get<OrgUserListResponse>(
+    `${BASE_URL}/organization/users`,
+    { headers, params: { limit: 100 } }
+  );
+
+  const orgUsers = response.data?.data || [];
+  console.log(`OpenAI: found ${orgUsers.length} org users`);
+
+  const userToMember = new Map<string, TeamMember>();
+  for (const user of orgUsers) {
+    const member = matchUserToMember(user, members);
+    if (member) {
+      userToMember.set(user.id, member);
+    }
+  }
+
+  console.log(`OpenAI: mapped ${userToMember.size} org users to team members`);
+  return userToMember;
+}
+
 export async function fetchOpenAIUsage(
   startDate: string,
   endDate: string,
@@ -70,19 +161,30 @@ export async function fetchOpenAIUsage(
 
   try {
     const startTimestamp = Math.floor(new Date(`${startDate}T00:00:00Z`).getTime() / 1000);
-    // end_time is exclusive — use next day midnight
     const endDateObj = new Date(`${endDate}T00:00:00Z`);
     endDateObj.setDate(endDateObj.getDate() + 1);
     const endTimestamp = Math.floor(endDateObj.getTime() / 1000);
 
-    // Use paramsSerializer for correct array param handling
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+    };
+    if (orgId) headers['OpenAI-Organization'] = orgId;
+
+    // Step 1: Build user_id -> team member mapping
+    let userToMember: Map<string, TeamMember>;
+    try {
+      userToMember = await buildUserMap(apiKey, orgId, members);
+    } catch (err) {
+      console.warn('OpenAI: could not fetch org users, will distribute equally:', err);
+      userToMember = new Map();
+    }
+
+    // Step 2: Fetch usage grouped by user_id + model
     const response = await axios.get<UsageResponse>(
       `${BASE_URL}/organization/usage/completions`,
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...(orgId && { 'OpenAI-Organization': orgId }),
-        },
+        headers,
+        paramsSerializer: serializeParams,
         params: {
           start_time: startTimestamp,
           end_time: endTimestamp,
@@ -90,26 +192,16 @@ export async function fetchOpenAIUsage(
           limit: 31,
           'group_by[]': ['user_id', 'model'],
         },
-        paramsSerializer: (params: Record<string, unknown>) => {
-          const parts: string[] = [];
-          for (const [key, value] of Object.entries(params)) {
-            if (Array.isArray(value)) {
-              for (const v of value) {
-                parts.push(`${key}=${encodeURIComponent(String(v))}`);
-              }
-            } else if (value !== undefined && value !== null) {
-              parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
-            }
-          }
-          return parts.join('&');
-        },
       }
     );
 
     const records: UsageRecord[] = [];
     const buckets = response.data?.data || [];
 
-    console.log(`OpenAI: ${buckets.length} usage buckets, ${buckets.reduce((n, b) => n + (b.results?.length || 0), 0)} results`);
+    console.log(
+      `OpenAI: ${buckets.length} usage buckets, ` +
+      `${buckets.reduce((n, b) => n + (b.results?.length || 0), 0)} results`
+    );
 
     for (const bucket of buckets) {
       const bucketDate = new Date(bucket.start_time * 1000)
@@ -117,32 +209,45 @@ export async function fetchOpenAIUsage(
         .split('T')[0];
 
       for (const result of (bucket.results || [])) {
-        // Match user_id to a team member
+        const inputTokens = result.input_tokens || 0;
+        const outputTokens = result.output_tokens || 0;
+        const model = result.model || 'gpt-4o';
+        const requestCount = result.num_model_requests || 0;
+
+        // Try to match user_id to a team member
         const matchedMember = result.user_id
-          ? members.find(
-              (m) => m.id === result.user_id || m.email === result.user_id
-            )
+          ? userToMember.get(result.user_id)
           : undefined;
 
-        const targetMembers = matchedMember ? [matchedMember] : members;
-        const share = 1 / targetMembers.length;
-
-        for (const member of targetMembers) {
-          const inputTokens = Math.round((result.input_tokens || 0) * share);
-          const outputTokens = Math.round((result.output_tokens || 0) * share);
-          const model = result.model || 'gpt-4o';
-
+        if (matchedMember) {
+          // Matched to a specific person
           records.push({
             service: 'chatgpt',
-            memberId: member.id,
+            memberId: matchedMember.id,
             date: bucketDate,
             inputTokens,
             outputTokens,
             totalTokens: inputTokens + outputTokens,
             cost: estimateCost(model, inputTokens, outputTokens),
-            requestCount: Math.round((result.num_model_requests || 0) * share),
+            requestCount,
             model,
           });
+        } else {
+          // Can't identify — distribute equally
+          const share = 1 / members.length;
+          for (const member of members) {
+            records.push({
+              service: 'chatgpt',
+              memberId: member.id,
+              date: bucketDate,
+              inputTokens: Math.round(inputTokens * share),
+              outputTokens: Math.round(outputTokens * share),
+              totalTokens: Math.round((inputTokens + outputTokens) * share),
+              cost: estimateCost(model, Math.round(inputTokens * share), Math.round(outputTokens * share)),
+              requestCount: Math.round(requestCount * share),
+              model,
+            });
+          }
         }
       }
     }

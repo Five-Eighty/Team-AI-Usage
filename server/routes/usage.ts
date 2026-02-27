@@ -160,25 +160,6 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
 function generateSampleRecords(startDate: string, endDate: string): UsageRecord[] {
   const records: UsageRecord[] = [];
 
-  // Token-based services
-  const tokenSvcs: Array<{
-    service: AIService; model: string;
-    costRange: [number, number]; tokenRange: [number, number];
-  }> = [
-    { service: 'claude', model: 'claude-sonnet-4-20250514', costRange: [0.50, 4.00], tokenRange: [5000, 80000] },
-    { service: 'chatgpt', model: 'gpt-4o', costRange: [0.30, 3.00], tokenRange: [4000, 60000] },
-    { service: 'gemini', model: 'gemini-2.0-flash', costRange: [0.10, 1.50], tokenRange: [3000, 40000] },
-  ];
-
-  // Credit-based services
-  const creditSvcs: Array<{
-    service: AIService; model: string;
-    costRange: [number, number]; creditRange: [number, number];
-  }> = [
-    { service: 'higgsfield', model: 'higgsfield-pro', costRange: [0.20, 2.50], creditRange: [5, 50] },
-    { service: 'weavy', model: 'weavy-standard', costRange: [0.15, 1.80], creditRange: [3, 30] },
-  ];
-
   // Deterministic pseudo-random based on seed string
   function seededRandom(seed: string): number {
     let hash = 0;
@@ -188,26 +169,63 @@ function generateSampleRecords(startDate: string, endDate: string): UsageRecord[
     return (Math.abs(hash) % 1000) / 1000;
   }
 
+  // Give each member a stable "intensity" per service (0.1–1.0)
+  // This creates power-user vs light-user variation
+  const memberIntensity: Record<string, Record<string, number>> = {};
+  for (const member of teamMembers) {
+    memberIntensity[member.id] = {};
+    for (const svc of ['claude', 'chatgpt', 'gemini', 'higgsfield', 'weavy']) {
+      // Intensity follows a skewed distribution: some heavy users, many light
+      const raw = seededRandom(`intensity-${member.id}-${svc}`);
+      memberIntensity[member.id][svc] = 0.05 + raw * raw * 0.95; // square for skew
+    }
+  }
+
+  // Token-based services
+  const tokenSvcs: Array<{
+    service: AIService; model: string;
+    costRange: [number, number]; tokenRange: [number, number];
+  }> = [
+    { service: 'claude', model: 'claude-sonnet-4-20250514', costRange: [0.50, 8.00], tokenRange: [5000, 150000] },
+    { service: 'chatgpt', model: 'gpt-4o', costRange: [0.30, 6.00], tokenRange: [4000, 120000] },
+    { service: 'gemini', model: 'gemini-2.0-flash', costRange: [0.10, 3.00], tokenRange: [3000, 80000] },
+  ];
+
+  // Credit-based services
+  const creditSvcs: Array<{
+    service: AIService; model: string;
+    costRange: [number, number]; creditRange: [number, number];
+  }> = [
+    { service: 'higgsfield', model: 'higgsfield-pro', costRange: [0.20, 5.00], creditRange: [5, 80] },
+    { service: 'weavy', model: 'weavy-standard', costRange: [0.15, 3.50], creditRange: [3, 50] },
+  ];
+
   const start = new Date(startDate);
   const end = new Date(endDate);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const date = d.toISOString().split('T')[0];
-    // Skip weekends
     if (d.getDay() === 0 || d.getDay() === 6) continue;
 
     for (const member of teamMembers) {
+      const intensity = memberIntensity[member.id];
+
       // Token-based services
       for (const svc of tokenSvcs) {
+        const memberWeight = intensity[svc.service];
+        // Skip probability based on intensity (light users skip more days)
+        const skipThreshold = 0.7 - memberWeight * 0.5; // heavy: skip <20%, light: skip ~65%
         const r = seededRandom(`${member.id}-${date}-${svc.service}`);
-        if (r < 0.3) continue;
+        if (r < skipThreshold) continue;
 
-        const costFactor = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
-        const cost = svc.costRange[0] + costFactor * (svc.costRange[1] - svc.costRange[0]);
-
-        const tokenFactor = seededRandom(`tok-${member.id}-${date}-${svc.service}`);
-        const totalTokens = Math.round(svc.tokenRange[0] + tokenFactor * (svc.tokenRange[1] - svc.tokenRange[0]));
-        const inputTokens = Math.round(totalTokens * 0.7);
+        const dailyRand = seededRandom(`tok-${member.id}-${date}-${svc.service}`);
+        const totalTokens = Math.round(
+          (svc.tokenRange[0] + dailyRand * (svc.tokenRange[1] - svc.tokenRange[0])) * memberWeight
+        );
+        const inputTokens = Math.round(totalTokens * (0.6 + seededRandom(`split-${member.id}-${date}`) * 0.2));
         const outputTokens = totalTokens - inputTokens;
+
+        const costRand = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
+        const cost = (svc.costRange[0] + costRand * (svc.costRange[1] - svc.costRange[0])) * memberWeight;
 
         records.push({
           service: svc.service,
@@ -217,21 +235,25 @@ function generateSampleRecords(startDate: string, endDate: string): UsageRecord[
           outputTokens,
           totalTokens,
           cost: Math.round(cost * 10000) / 10000,
-          requestCount: Math.round(1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 20),
+          requestCount: Math.round((1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 25) * memberWeight),
           model: svc.model,
         });
       }
 
       // Credit-based services
       for (const svc of creditSvcs) {
+        const memberWeight = intensity[svc.service];
+        const skipThreshold = 0.75 - memberWeight * 0.5;
         const r = seededRandom(`${member.id}-${date}-${svc.service}`);
-        if (r < 0.4) continue; // slightly less frequent
+        if (r < skipThreshold) continue;
 
-        const costFactor = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
-        const cost = svc.costRange[0] + costFactor * (svc.costRange[1] - svc.costRange[0]);
+        const costRand = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
+        const cost = (svc.costRange[0] + costRand * (svc.costRange[1] - svc.costRange[0])) * memberWeight;
 
-        const creditFactor = seededRandom(`cred-${member.id}-${date}-${svc.service}`);
-        const credits = Math.round(svc.creditRange[0] + creditFactor * (svc.creditRange[1] - svc.creditRange[0]));
+        const creditRand = seededRandom(`cred-${member.id}-${date}-${svc.service}`);
+        const credits = Math.round(
+          (svc.creditRange[0] + creditRand * (svc.creditRange[1] - svc.creditRange[0])) * memberWeight
+        );
 
         records.push({
           service: svc.service,
@@ -241,7 +263,7 @@ function generateSampleRecords(startDate: string, endDate: string): UsageRecord[
           outputTokens: 0,
           totalTokens: 0,
           cost: Math.round(cost * 10000) / 10000,
-          requestCount: Math.round(1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 10),
+          requestCount: Math.round((1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 10) * memberWeight),
           model: svc.model,
           credits,
         });
