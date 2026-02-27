@@ -95,7 +95,7 @@ export async function fetchAnthropicUsage(
     for (const bucket of costBuckets) {
       const date = bucket.starting_at.split('T')[0];
       // amount is in cents as decimal string
-      dailyCosts[date] = (dailyCosts[date] || 0) + parseFloat(bucket.amount) / 100;
+      dailyCosts[date] = (dailyCosts[date] || 0) + (parseFloat(bucket.amount) || 0) / 100;
     }
 
     // Aggregate usage by day
@@ -109,8 +109,8 @@ export async function fetchAnthropicUsage(
       if (!dailyUsage[date]) {
         dailyUsage[date] = { input: 0, output: 0, model: bucket.model || 'claude-sonnet-4-20250514' };
       }
-      dailyUsage[date].input += bucket.uncached_input_tokens + (bucket.cache_read || 0);
-      dailyUsage[date].output += bucket.output_tokens;
+      dailyUsage[date].input += (bucket.uncached_input_tokens || 0) + (bucket.cache_read || 0);
+      dailyUsage[date].output += (bucket.output_tokens || 0);
     }
 
     // Distribute across team members

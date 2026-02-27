@@ -109,8 +109,8 @@ export async function fetchOpenAIUsage(
         const share = 1 / targetMembers.length;
 
         for (const member of targetMembers) {
-          const inputTokens = Math.round(result.input_tokens * share);
-          const outputTokens = Math.round(result.output_tokens * share);
+          const inputTokens = Math.round((result.input_tokens || 0) * share);
+          const outputTokens = Math.round((result.output_tokens || 0) * share);
           const model = result.model || 'gpt-4o';
 
           records.push({
@@ -121,7 +121,7 @@ export async function fetchOpenAIUsage(
             outputTokens,
             totalTokens: inputTokens + outputTokens,
             cost: estimateCost(model, inputTokens, outputTokens),
-            requestCount: Math.round(result.num_model_requests * share),
+            requestCount: Math.round((result.num_model_requests || 0) * share),
             model,
           });
         }

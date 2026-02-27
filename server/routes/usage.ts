@@ -59,19 +59,26 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
   let maxDate = '';
 
   for (const record of records) {
+    // Sanitize: NaN becomes null in JSON, crashing the frontend
+    const cost = record.cost || 0;
+    const inputTokens = record.inputTokens || 0;
+    const outputTokens = record.outputTokens || 0;
+    const totalTokensRec = record.totalTokens || 0;
+    const requestCount = record.requestCount || 0;
+
     // Update member summary
     const memberSummary = memberMap.get(record.memberId);
     if (memberSummary) {
-      memberSummary.totalCost += record.cost;
-      memberSummary.totalTokens += record.totalTokens;
-      memberSummary.totalRequests += record.requestCount;
+      memberSummary.totalCost += cost;
+      memberSummary.totalTokens += totalTokensRec;
+      memberSummary.totalRequests += requestCount;
 
       const svc = memberSummary.byService[record.service];
-      svc.inputTokens += record.inputTokens;
-      svc.outputTokens += record.outputTokens;
-      svc.totalTokens += record.totalTokens;
-      svc.cost += record.cost;
-      svc.requestCount += record.requestCount;
+      svc.inputTokens += inputTokens;
+      svc.outputTokens += outputTokens;
+      svc.totalTokens += totalTokensRec;
+      svc.cost += cost;
+      svc.requestCount += requestCount;
     }
 
     // Update daily usage
@@ -87,21 +94,21 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
       });
     }
     const daily = dailyMap.get(record.date)!;
-    daily[record.service] += record.cost;
-    daily.total += record.cost;
+    daily[record.service] += cost;
+    daily.total += cost;
 
     // Update overall service totals
     const overall = overallByService[record.service];
-    overall.inputTokens += record.inputTokens;
-    overall.outputTokens += record.outputTokens;
-    overall.totalTokens += record.totalTokens;
-    overall.cost += record.cost;
-    overall.requestCount += record.requestCount;
+    overall.inputTokens += inputTokens;
+    overall.outputTokens += outputTokens;
+    overall.totalTokens += totalTokensRec;
+    overall.cost += cost;
+    overall.requestCount += requestCount;
 
     // Track totals
-    totalCost += record.cost;
-    totalTokens += record.totalTokens;
-    totalRequests += record.requestCount;
+    totalCost += cost;
+    totalTokens += totalTokensRec;
+    totalRequests += requestCount;
 
     // Track date range
     if (!minDate || record.date < minDate) minDate = record.date;
