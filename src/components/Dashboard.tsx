@@ -8,7 +8,7 @@ import { MemberTable } from './MemberTable.js';
 import { ServiceStatus } from './ServiceStatus.js';
 import { useUsageData } from '../hooks/useUsageData.js';
 import type { DateRange } from '../types/index.js';
-import { AlertTriangle, Loader } from 'lucide-react';
+import { AlertTriangle, Loader, Info } from 'lucide-react';
 
 function getDefaultDateRange(): DateRange {
   const end = new Date();
@@ -21,7 +21,7 @@ function getDefaultDateRange(): DateRange {
 
 export function Dashboard() {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange());
-  const { data, loading, error, warnings, refresh } = useUsageData(dateRange);
+  const { data, loading, error, warnings, sampleData, refresh } = useUsageData(dateRange);
 
   return (
     <div className="dashboard">
@@ -32,7 +32,16 @@ export function Dashboard() {
         <ServiceStatus />
       </div>
 
-      {warnings.length > 0 && (
+      {sampleData && (
+        <div className="sample-data-banner">
+          <Info size={14} />
+          <span>
+            Showing sample data — configure API keys in your Railway environment variables to display real usage.
+          </span>
+        </div>
+      )}
+
+      {!sampleData && warnings.length > 0 && (
         <div className="warnings">
           {warnings.map((w, i) => (
             <div key={i} className="warning-item">

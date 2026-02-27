@@ -17,9 +17,10 @@ interface MemberTableProps {
 }
 
 function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toFixed(0);
+  const v = n || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return v.toFixed(0);
 }
 
 function MemberRow({ summary }: { summary: MemberUsageSummary }) {
@@ -28,7 +29,7 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
   const chartData = (Object.keys(SERVICE_COLORS) as AIService[])
     .map((service) => ({
       name: SERVICE_LABELS[service],
-      cost: parseFloat(summary.byService[service].cost.toFixed(4)),
+      cost: parseFloat((summary.byService[service].cost || 0).toFixed(4)),
       tokens: summary.byService[service].totalTokens,
       color: SERVICE_COLORS[service],
     }))
@@ -60,7 +61,7 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
         </td>
         <td>{formatNumber(summary.totalTokens)}</td>
         <td>{formatNumber(summary.totalRequests)}</td>
-        <td className="cost-cell">${summary.totalCost.toFixed(4)}</td>
+        <td className="cost-cell">${(summary.totalCost || 0).toFixed(4)}</td>
       </tr>
       {expanded && (
         <tr className="member-detail">
@@ -73,7 +74,7 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
                       type="number"
                       stroke="#9CA3AF"
                       fontSize={12}
-                      tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                      tickFormatter={(v: number) => `$${(v || 0).toFixed(2)}`}
                     />
                     <YAxis
                       type="category"
@@ -119,7 +120,7 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
                         {formatNumber(svc.totalTokens)} tokens
                       </span>
                       <span className="service-stat">
-                        ${svc.cost.toFixed(4)}
+                        ${(svc.cost || 0).toFixed(4)}
                       </span>
                     </div>
                   );

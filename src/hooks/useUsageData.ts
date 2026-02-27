@@ -7,6 +7,7 @@ interface UseUsageDataResult {
   loading: boolean;
   error: string | null;
   warnings: string[];
+  sampleData: boolean;
   refresh: () => void;
 }
 
@@ -15,6 +16,7 @@ export function useUsageData(dateRange: DateRange): UseUsageDataResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [sampleData, setSampleData] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -27,6 +29,7 @@ export function useUsageData(dateRange: DateRange): UseUsageDataResult {
       );
       setData(result.data);
       setWarnings(result.errors || []);
+      setSampleData(result.sampleData || false);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to fetch usage data'
@@ -40,5 +43,5 @@ export function useUsageData(dateRange: DateRange): UseUsageDataResult {
     loadData();
   }, [loadData]);
 
-  return { data, loading, error, warnings, refresh: loadData };
+  return { data, loading, error, warnings, sampleData, refresh: loadData };
 }

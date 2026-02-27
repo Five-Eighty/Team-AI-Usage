@@ -13,9 +13,10 @@ interface ServiceBreakdownProps {
 }
 
 function formatNumber(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toFixed(0);
+  const v = n || 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return v.toFixed(0);
 }
 
 export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
@@ -23,7 +24,7 @@ export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
     .filter(([, v]) => v.cost > 0)
     .map(([key, value]) => ({
       name: SERVICE_LABELS[key as AIService],
-      value: parseFloat(value.cost.toFixed(4)),
+      value: parseFloat((value.cost || 0).toFixed(4)),
       color: SERVICE_COLORS[key as AIService],
     }));
 
@@ -142,7 +143,7 @@ export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
                 <td>{formatNumber(value.outputTokens)}</td>
                 <td>{formatNumber(value.totalTokens)}</td>
                 <td>{formatNumber(value.requestCount)}</td>
-                <td>${value.cost.toFixed(4)}</td>
+                <td>${(value.cost || 0).toFixed(4)}</td>
               </tr>
             ))}
           </tbody>

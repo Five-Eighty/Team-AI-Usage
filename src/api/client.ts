@@ -9,16 +9,17 @@ interface ApiResponse<T> {
   success: boolean;
   data: T;
   errors?: string[];
+  sampleData?: boolean;
 }
 
 export async function fetchUsageData(
   startDate: string,
   endDate: string
-): Promise<{ data: DashboardData; errors?: string[] }> {
+): Promise<{ data: DashboardData; errors?: string[]; sampleData?: boolean }> {
   const response = await api.get<ApiResponse<DashboardData>>('/usage', {
     params: { startDate, endDate },
   });
-  return { data: response.data.data, errors: response.data.errors };
+  return { data: response.data.data, errors: response.data.errors, sampleData: response.data.sampleData };
 }
 
 export async function fetchMembers(): Promise<TeamMember[]> {

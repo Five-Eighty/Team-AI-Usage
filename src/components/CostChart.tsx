@@ -36,7 +36,7 @@ export function CostChart({ dailyUsage }: CostChartProps) {
           <YAxis
             stroke="#9CA3AF"
             fontSize={12}
-            tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+            tickFormatter={(v: number) => `$${(v || 0).toFixed(2)}`}
           />
           <Tooltip
             contentStyle={{

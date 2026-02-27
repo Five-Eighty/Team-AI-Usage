@@ -134,6 +134,63 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
   };
 }
 
+// Generate sample data when no API keys are configured
+function generateSampleRecords(startDate: string, endDate: string): UsageRecord[] {
+  const records: UsageRecord[] = [];
+  const services: Array<{ service: AIService; model: string; costRange: [number, number]; tokenRange: [number, number] }> = [
+    { service: 'claude', model: 'claude-sonnet-4-20250514', costRange: [0.50, 4.00], tokenRange: [5000, 80000] },
+    { service: 'chatgpt', model: 'gpt-4o', costRange: [0.30, 3.00], tokenRange: [4000, 60000] },
+    { service: 'gemini', model: 'gemini-2.0-flash', costRange: [0.10, 1.50], tokenRange: [3000, 40000] },
+  ];
+
+  // Deterministic pseudo-random based on member id + date
+  function seededRandom(seed: string): number {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+    }
+    return (Math.abs(hash) % 1000) / 1000;
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const date = d.toISOString().split('T')[0];
+    // Skip weekends
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+
+    for (const member of teamMembers) {
+      for (const svc of services) {
+        const r = seededRandom(`${member.id}-${date}-${svc.service}`);
+        // Not every member uses every service every day
+        if (r < 0.3) continue;
+
+        const costFactor = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
+        const cost = svc.costRange[0] + costFactor * (svc.costRange[1] - svc.costRange[0]);
+
+        const tokenFactor = seededRandom(`tok-${member.id}-${date}-${svc.service}`);
+        const totalTokens = Math.round(svc.tokenRange[0] + tokenFactor * (svc.tokenRange[1] - svc.tokenRange[0]));
+        const inputTokens = Math.round(totalTokens * 0.7);
+        const outputTokens = totalTokens - inputTokens;
+
+        records.push({
+          service: svc.service,
+          memberId: member.id,
+          date,
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          cost: Math.round(cost * 10000) / 10000,
+          requestCount: Math.round(1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 20),
+          model: svc.model,
+        });
+      }
+    }
+  }
+
+  return records;
+}
+
 // GET /api/usage?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -170,12 +227,33 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
-    const dashboard = aggregateRecords(allRecords);
+    // Warn about unconfigured services (they return [] without throwing)
+    const serviceKeyMap: Record<string, string | undefined> = {
+      Claude: process.env.ANTHROPIC_ADMIN_API_KEY,
+      ChatGPT: process.env.OPENAI_ADMIN_API_KEY,
+      Gemini: process.env.GOOGLE_CLOUD_PROJECT_ID,
+      Higgsfield: process.env.HIGGSFIELD_API_KEY,
+      Weavy: process.env.WEAVY_API_KEY,
+    };
+    for (const [name, key] of Object.entries(serviceKeyMap)) {
+      if (!key) {
+        errors.push(`${name}: API key not configured`);
+      }
+    }
+
+    // Fall back to sample data when no API keys are configured
+    const useSampleData = allRecords.length === 0 && !Object.values(serviceKeyMap).some(Boolean);
+    const finalRecords = useSampleData
+      ? generateSampleRecords(startDate, endDate)
+      : allRecords;
+
+    const dashboard = aggregateRecords(finalRecords);
 
     res.json({
       success: true,
       data: dashboard,
       errors: errors.length > 0 ? errors : undefined,
+      sampleData: useSampleData || undefined,
     });
   } catch (error) {
     console.error('Usage endpoint error:', error);
