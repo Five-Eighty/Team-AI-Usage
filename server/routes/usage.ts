@@ -245,7 +245,28 @@ router.get('/diagnose', async (_req: Request, res: Response) => {
     }
   }
 
-  res.json({ success: true, data: results });
+  // List all env var names that look API/config related (no values for security)
+  const allEnvNames = Object.keys(process.env)
+    .filter((k) => !k.startsWith('npm_') && !k.startsWith('__'))
+    .sort();
+
+  const expectedVars = [
+    'ANTHROPIC_ADMIN_API_KEY',
+    'ANTHROPIC_ORGANIZATION_ID',
+    'OPENAI_ADMIN_API_KEY',
+    'OPENAI_ORGANIZATION_ID',
+    'GOOGLE_CLOUD_PROJECT_ID',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'HIGGSFIELD_API_KEY',
+    'WEAVY_API_KEY',
+    'WEAVY_ENVIRONMENT_URL',
+  ];
+  const envCheck: Record<string, boolean> = {};
+  for (const v of expectedVars) {
+    envCheck[v] = !!process.env[v];
+  }
+
+  res.json({ success: true, data: results, envVarNames: allEnvNames, envCheck });
 });
 
 export default router;
