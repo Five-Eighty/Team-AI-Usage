@@ -6,7 +6,7 @@ import {
   Tooltip,
 } from 'recharts';
 import type { AIService, ServiceUsageSummary } from '../types/index.js';
-import { SERVICE_COLORS, SERVICE_LABELS } from '../types/index.js';
+import { SERVICE_COLORS, SERVICE_LABELS, SERVICE_META } from '../types/index.js';
 
 interface ServiceBreakdownProps {
   byService: Record<AIService, ServiceUsageSummary>;
@@ -19,6 +19,16 @@ function formatNumber(n: number): string {
   return v.toFixed(0);
 }
 
+/** Returns the primary usage amount for a service using its native unit */
+function getUsageAmount(service: AIService, data: ServiceUsageSummary): number {
+  return SERVICE_META[service].unit === 'tokens' ? data.totalTokens : data.credits;
+}
+
+/** Returns the display label for a service's usage */
+function getUsageLabel(service: AIService): string {
+  return SERVICE_META[service].unitLabel;
+}
+
 export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
   const costData = Object.entries(byService)
     .filter(([, v]) => v.cost > 0)
@@ -28,15 +38,7 @@ export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
       color: SERVICE_COLORS[key as AIService],
     }));
 
-  const tokenData = Object.entries(byService)
-    .filter(([, v]) => v.totalTokens > 0)
-    .map(([key, value]) => ({
-      name: SERVICE_LABELS[key as AIService],
-      value: value.totalTokens,
-      color: SERVICE_COLORS[key as AIService],
-    }));
-
-  const hasData = costData.length > 0 || tokenData.length > 0;
+  const hasData = costData.length > 0;
 
   return (
     <div className="chart-card">
@@ -47,74 +49,37 @@ export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
           <p className="text-muted">Configure your API keys and select a date range with activity.</p>
         </div>
       ) : (
-        <div className="pie-charts">
-          <div className="pie-section">
-            <h4>By Cost</h4>
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={costData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }: { name?: string; percent?: number }) =>
-                    `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
-                  }
-                  labelLine={false}
-                >
-                  {costData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1F2937',
-                    border: '1px solid #374151',
-                    borderRadius: '8px',
-                    color: '#F9FAFB',
-                  }}
-                  formatter={(value: number | undefined) => [`$${(value ?? 0).toFixed(4)}`, 'Cost']}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="pie-section">
-            <h4>By Tokens</h4>
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={tokenData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }: { name?: string; percent?: number }) =>
-                    `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
-                  }
-                  labelLine={false}
-                >
-                  {tokenData.map((entry, index) => (
-                    <Cell key={index} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1F2937',
-                    border: '1px solid #374151',
-                    borderRadius: '8px',
-                    color: '#F9FAFB',
-                  }}
-                  formatter={(value: number | undefined) => [
-                    formatNumber(value ?? 0),
-                    'Tokens',
-                  ]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="pie-single">
+          <h4>Cost by Service</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart>
+              <Pie
+                data={costData}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+                label={({ name, percent }: { name?: string; percent?: number }) =>
+                  `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
+                }
+                labelLine={false}
+              >
+                {costData.map((entry, index) => (
+                  <Cell key={index} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#1F2937',
+                  border: '1px solid #374151',
+                  borderRadius: '8px',
+                  color: '#F9FAFB',
+                }}
+                formatter={(value: number | undefined) => [`$${(value ?? 0).toFixed(4)}`, 'Cost']}
+              />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       )}
       <div className="service-table">
@@ -122,30 +87,32 @@ export function ServiceBreakdown({ byService }: ServiceBreakdownProps) {
           <thead>
             <tr>
               <th>Service</th>
-              <th>Input Tokens</th>
-              <th>Output Tokens</th>
-              <th>Total Tokens</th>
+              <th>Usage</th>
+              <th>Unit</th>
               <th>Requests</th>
               <th>Cost</th>
             </tr>
           </thead>
           <tbody>
-            {Object.entries(byService).map(([key, value]) => (
-              <tr key={key}>
-                <td>
-                  <span
-                    className="service-dot"
-                    style={{ backgroundColor: SERVICE_COLORS[key as AIService] }}
-                  />
-                  {SERVICE_LABELS[key as AIService]}
-                </td>
-                <td>{formatNumber(value.inputTokens)}</td>
-                <td>{formatNumber(value.outputTokens)}</td>
-                <td>{formatNumber(value.totalTokens)}</td>
-                <td>{formatNumber(value.requestCount)}</td>
-                <td>${(value.cost || 0).toFixed(4)}</td>
-              </tr>
-            ))}
+            {Object.entries(byService).map(([key, value]) => {
+              const service = key as AIService;
+              const usage = getUsageAmount(service, value);
+              return (
+                <tr key={key}>
+                  <td>
+                    <span
+                      className="service-dot"
+                      style={{ backgroundColor: SERVICE_COLORS[service] }}
+                    />
+                    {SERVICE_LABELS[service]}
+                  </td>
+                  <td>{formatNumber(usage)}</td>
+                  <td className="text-muted">{getUsageLabel(service)}</td>
+                  <td>{formatNumber(value.requestCount)}</td>
+                  <td>${(value.cost || 0).toFixed(4)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

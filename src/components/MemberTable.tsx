@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { MemberUsageSummary, AIService } from '../types/index.js';
-import { SERVICE_COLORS, SERVICE_LABELS } from '../types/index.js';
+import { SERVICE_COLORS, SERVICE_LABELS, SERVICE_META } from '../types/index.js';
 
 interface MemberTableProps {
   members: MemberUsageSummary[];
@@ -30,16 +30,25 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
     .map((service) => ({
       name: SERVICE_LABELS[service],
       cost: parseFloat((summary.byService[service].cost || 0).toFixed(4)),
-      tokens: summary.byService[service].totalTokens,
       color: SERVICE_COLORS[service],
     }))
-    .filter((d) => d.cost > 0 || d.tokens > 0);
+    .filter((d) => d.cost > 0);
 
   const initials = summary.member.name
     .split(' ')
     .map((n) => n[0])
     .join('')
     .toUpperCase();
+
+  // Build per-service detail with correct unit labels
+  const serviceDetails = (Object.keys(SERVICE_COLORS) as AIService[])
+    .map((service) => {
+      const svc = summary.byService[service];
+      const meta = SERVICE_META[service];
+      const usage = meta.unit === 'tokens' ? svc.totalTokens : svc.credits;
+      return { service, svc, meta, usage };
+    })
+    .filter(({ svc, usage }) => svc.cost > 0 || usage > 0);
 
   return (
     <>
@@ -59,16 +68,16 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
             </div>
           </div>
         </td>
-        <td>{formatNumber(summary.totalTokens)}</td>
-        <td>{formatNumber(summary.totalRequests)}</td>
-        <td className="cost-cell">${(summary.totalCost || 0).toFixed(4)}</td>
+        <td>{summary.totalTokens > 0 ? formatNumber(summary.totalTokens) : '—'}</td>
+        <td>{summary.totalCredits > 0 ? formatNumber(summary.totalCredits) : '—'}</td>
+        <td className="cost-cell">${(summary.totalCost || 0).toFixed(2)}</td>
       </tr>
       {expanded && (
         <tr className="member-detail">
           <td colSpan={4}>
             <div className="member-detail-content">
               <div className="member-chart">
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={Math.max(160, serviceDetails.length * 40)}>
                   <BarChart data={chartData} layout="vertical">
                     <XAxis
                       type="number"
@@ -104,27 +113,23 @@ function MemberRow({ summary }: { summary: MemberUsageSummary }) {
                 </ResponsiveContainer>
               </div>
               <div className="member-services">
-                {(Object.keys(SERVICE_COLORS) as AIService[]).map((service) => {
-                  const svc = summary.byService[service];
-                  if (svc.cost === 0 && svc.totalTokens === 0) return null;
-                  return (
-                    <div key={service} className="service-detail">
-                      <span
-                        className="service-dot"
-                        style={{ backgroundColor: SERVICE_COLORS[service] }}
-                      />
-                      <span className="service-name">
-                        {SERVICE_LABELS[service]}
-                      </span>
-                      <span className="service-stat">
-                        {formatNumber(svc.totalTokens)} tokens
-                      </span>
-                      <span className="service-stat">
-                        ${(svc.cost || 0).toFixed(4)}
-                      </span>
-                    </div>
-                  );
-                })}
+                {serviceDetails.map(({ service, svc, meta, usage }) => (
+                  <div key={service} className="service-detail">
+                    <span
+                      className="service-dot"
+                      style={{ backgroundColor: SERVICE_COLORS[service] }}
+                    />
+                    <span className="service-name">
+                      {SERVICE_LABELS[service]}
+                    </span>
+                    <span className="service-stat">
+                      {formatNumber(usage)} {meta.unitLabel}
+                    </span>
+                    <span className="service-stat">
+                      ${(svc.cost || 0).toFixed(4)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </td>
@@ -145,7 +150,7 @@ export function MemberTable({ members }: MemberTableProps) {
           <tr>
             <th>Member</th>
             <th>Tokens</th>
-            <th>Requests</th>
+            <th>Credits</th>
             <th>Cost</th>
           </tr>
         </thead>

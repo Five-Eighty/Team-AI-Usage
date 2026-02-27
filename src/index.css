@@ -249,6 +249,11 @@ body {
   color: var(--text-secondary);
 }
 
+.stat-sublabel {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
 /* Chart Cards */
 .chart-card {
   background: var(--bg-card);
@@ -285,6 +290,10 @@ body {
 }
 
 .pie-section {
+  text-align: center;
+}
+
+.pie-single {
   text-align: center;
 }
 

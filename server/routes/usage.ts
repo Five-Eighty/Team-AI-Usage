@@ -14,6 +14,7 @@ import type {
   DailyUsage,
   DashboardData,
 } from '../../src/types/index.js';
+import { TOKEN_SERVICES } from '../../src/types/index.js';
 
 const router = Router();
 
@@ -24,6 +25,7 @@ const EMPTY_SERVICE_SUMMARY: ServiceUsageSummary = {
   totalTokens: 0,
   cost: 0,
   requestCount: 0,
+  credits: 0,
 };
 
 function createServiceSummaries(): Record<AIService, ServiceUsageSummary> {
@@ -34,6 +36,10 @@ function createServiceSummaries(): Record<AIService, ServiceUsageSummary> {
     higgsfield: { ...EMPTY_SERVICE_SUMMARY, service: 'higgsfield' },
     weavy: { ...EMPTY_SERVICE_SUMMARY, service: 'weavy' },
   };
+}
+
+function isTokenService(service: AIService): boolean {
+  return TOKEN_SERVICES.includes(service);
 }
 
 function aggregateRecords(records: UsageRecord[]): DashboardData {
@@ -47,6 +53,7 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
       member,
       totalCost: 0,
       totalTokens: 0,
+      totalCredits: 0,
       totalRequests: 0,
       byService: createServiceSummaries(),
     });
@@ -54,6 +61,7 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
 
   let totalCost = 0;
   let totalTokens = 0;
+  let totalCredits = 0;
   let totalRequests = 0;
   let minDate = '';
   let maxDate = '';
@@ -65,13 +73,20 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
     const outputTokens = record.outputTokens || 0;
     const totalTokensRec = record.totalTokens || 0;
     const requestCount = record.requestCount || 0;
+    const credits = record.credits || 0;
 
     // Update member summary
     const memberSummary = memberMap.get(record.memberId);
     if (memberSummary) {
       memberSummary.totalCost += cost;
-      memberSummary.totalTokens += totalTokensRec;
       memberSummary.totalRequests += requestCount;
+
+      // Track tokens vs credits separately
+      if (isTokenService(record.service)) {
+        memberSummary.totalTokens += totalTokensRec;
+      } else {
+        memberSummary.totalCredits += credits;
+      }
 
       const svc = memberSummary.byService[record.service];
       svc.inputTokens += inputTokens;
@@ -79,9 +94,10 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
       svc.totalTokens += totalTokensRec;
       svc.cost += cost;
       svc.requestCount += requestCount;
+      svc.credits += credits;
     }
 
-    // Update daily usage
+    // Update daily usage (always by cost — cost is universally comparable)
     if (!dailyMap.has(record.date)) {
       dailyMap.set(record.date, {
         date: record.date,
@@ -104,11 +120,16 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
     overall.totalTokens += totalTokensRec;
     overall.cost += cost;
     overall.requestCount += requestCount;
+    overall.credits += credits;
 
     // Track totals
     totalCost += cost;
-    totalTokens += totalTokensRec;
     totalRequests += requestCount;
+    if (isTokenService(record.service)) {
+      totalTokens += totalTokensRec;
+    } else {
+      totalCredits += credits;
+    }
 
     // Track date range
     if (!minDate || record.date < minDate) minDate = record.date;
@@ -125,6 +146,7 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
     dailyUsage,
     totalCost,
     totalTokens,
+    totalCredits,
     totalRequests,
     byService: overallByService,
     dateRange: {
@@ -137,13 +159,27 @@ function aggregateRecords(records: UsageRecord[]): DashboardData {
 // Generate sample data when no API keys are configured
 function generateSampleRecords(startDate: string, endDate: string): UsageRecord[] {
   const records: UsageRecord[] = [];
-  const services: Array<{ service: AIService; model: string; costRange: [number, number]; tokenRange: [number, number] }> = [
+
+  // Token-based services
+  const tokenSvcs: Array<{
+    service: AIService; model: string;
+    costRange: [number, number]; tokenRange: [number, number];
+  }> = [
     { service: 'claude', model: 'claude-sonnet-4-20250514', costRange: [0.50, 4.00], tokenRange: [5000, 80000] },
     { service: 'chatgpt', model: 'gpt-4o', costRange: [0.30, 3.00], tokenRange: [4000, 60000] },
     { service: 'gemini', model: 'gemini-2.0-flash', costRange: [0.10, 1.50], tokenRange: [3000, 40000] },
   ];
 
-  // Deterministic pseudo-random based on member id + date
+  // Credit-based services
+  const creditSvcs: Array<{
+    service: AIService; model: string;
+    costRange: [number, number]; creditRange: [number, number];
+  }> = [
+    { service: 'higgsfield', model: 'higgsfield-pro', costRange: [0.20, 2.50], creditRange: [5, 50] },
+    { service: 'weavy', model: 'weavy-standard', costRange: [0.15, 1.80], creditRange: [3, 30] },
+  ];
+
+  // Deterministic pseudo-random based on seed string
   function seededRandom(seed: string): number {
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
@@ -160,9 +196,9 @@ function generateSampleRecords(startDate: string, endDate: string): UsageRecord[
     if (d.getDay() === 0 || d.getDay() === 6) continue;
 
     for (const member of teamMembers) {
-      for (const svc of services) {
+      // Token-based services
+      for (const svc of tokenSvcs) {
         const r = seededRandom(`${member.id}-${date}-${svc.service}`);
-        // Not every member uses every service every day
         if (r < 0.3) continue;
 
         const costFactor = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
@@ -183,6 +219,31 @@ function generateSampleRecords(startDate: string, endDate: string): UsageRecord[
           cost: Math.round(cost * 10000) / 10000,
           requestCount: Math.round(1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 20),
           model: svc.model,
+        });
+      }
+
+      // Credit-based services
+      for (const svc of creditSvcs) {
+        const r = seededRandom(`${member.id}-${date}-${svc.service}`);
+        if (r < 0.4) continue; // slightly less frequent
+
+        const costFactor = seededRandom(`cost-${member.id}-${date}-${svc.service}`);
+        const cost = svc.costRange[0] + costFactor * (svc.costRange[1] - svc.costRange[0]);
+
+        const creditFactor = seededRandom(`cred-${member.id}-${date}-${svc.service}`);
+        const credits = Math.round(svc.creditRange[0] + creditFactor * (svc.creditRange[1] - svc.creditRange[0]));
+
+        records.push({
+          service: svc.service,
+          memberId: member.id,
+          date,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          cost: Math.round(cost * 10000) / 10000,
+          requestCount: Math.round(1 + seededRandom(`req-${member.id}-${date}-${svc.service}`) * 10),
+          model: svc.model,
+          credits,
         });
       }
     }
@@ -336,11 +397,6 @@ router.get('/diagnose', async (_req: Request, res: Response) => {
     }
   }
 
-  // List all env var names that look API/config related (no values for security)
-  const allEnvNames = Object.keys(process.env)
-    .filter((k) => !k.startsWith('npm_') && !k.startsWith('__'))
-    .sort();
-
   const expectedVars = [
     'ANTHROPIC_ADMIN_API_KEY',
     'ANTHROPIC_ORGANIZATION_ID',
@@ -357,7 +413,7 @@ router.get('/diagnose', async (_req: Request, res: Response) => {
     envCheck[v] = !!process.env[v];
   }
 
-  res.json({ success: true, data: results, envVarNames: allEnvNames, envCheck });
+  res.json({ success: true, data: results, envCheck });
 });
 
 export default router;

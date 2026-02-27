@@ -1,4 +1,4 @@
-import { DollarSign, Zap, Hash, Users } from 'lucide-react';
+import { DollarSign, Zap, Coins, Users } from 'lucide-react';
 import type { DashboardData } from '../types/index.js';
 
 interface StatsCardsProps {
@@ -25,16 +25,18 @@ export function StatsCards({ data }: StatsCardsProps) {
       color: '#10B981',
     },
     {
-      label: 'Total Tokens',
+      label: 'API Tokens',
+      subtitle: 'Claude, ChatGPT, Gemini',
       value: formatNumber(data.totalTokens),
       icon: Zap,
       color: '#F59E0B',
     },
     {
-      label: 'Total Requests',
-      value: formatNumber(data.totalRequests),
-      icon: Hash,
-      color: '#6366F1',
+      label: 'Credits Used',
+      subtitle: 'Higgsfield, Weavy',
+      value: formatNumber(data.totalCredits),
+      icon: Coins,
+      color: '#8B5CF6',
     },
     {
       label: 'Team Members',
@@ -54,6 +56,9 @@ export function StatsCards({ data }: StatsCardsProps) {
           <div className="stat-content">
             <span className="stat-value">{stat.value}</span>
             <span className="stat-label">{stat.label}</span>
+            {'subtitle' in stat && stat.subtitle && (
+              <span className="stat-sublabel">{stat.subtitle}</span>
+            )}
           </div>
         </div>
       ))}
