@@ -66,7 +66,7 @@ export async function fetchAnthropicUsage(
             starting_at: `${startDate}T00:00:00Z`,
             ending_at: `${endDate}T23:59:59Z`,
             bucket_width: '1d',
-            'group_by[]': ['api_key', 'model'],
+            'group_by[]': ['api_key_id', 'model'],
           },
         }
       ),
