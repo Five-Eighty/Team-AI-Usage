@@ -7,10 +7,10 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsc -p server/tsconfig.json",
+    "start": "NODE_ENV=production node dist-server/server/index.js",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "server": "tsx server/index.ts"
+    "preview": "vite preview"
   },
   "dependencies": {
     "axios": "^1.13.5",
