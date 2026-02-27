@@ -241,11 +241,17 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Fall back to sample data when no API keys are configured
-    const useSampleData = allRecords.length === 0 && !Object.values(serviceKeyMap).some(Boolean);
+    // Fall back to sample data when no real records were returned
+    const useSampleData = allRecords.length === 0;
     const finalRecords = useSampleData
       ? generateSampleRecords(startDate, endDate)
       : allRecords;
+
+    if (useSampleData) {
+      console.log('No records from any service — using sample data');
+    } else {
+      console.log(`Aggregating ${allRecords.length} records from live APIs`);
+    }
 
     const dashboard = aggregateRecords(finalRecords);
 

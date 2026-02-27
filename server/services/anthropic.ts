@@ -7,11 +7,17 @@ interface UsageBucket {
   starting_at: string;
   uncached_input_tokens: number;
   output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  // Legacy field names (keep for backward compat)
   cache_creation?: {
     ephemeral_5m_input_tokens: number;
     ephemeral_1h_input_tokens: number;
   };
   cache_read?: number;
+  server_tool_use?: {
+    web_search_requests?: number;
+  };
   web_search_requests?: number;
   api_key_id?: string;
   model?: string;
@@ -53,48 +59,72 @@ export async function fetchAnthropicUsage(
   }
 
   try {
+    // ending_at should be the next day at midnight (exclusive end)
+    const endDateObj = new Date(endDate);
+    endDateObj.setDate(endDateObj.getDate() + 1);
+    const endingAt = endDateObj.toISOString().split('T')[0] + 'T00:00:00Z';
+
     // Fetch token usage and costs in parallel
+    // Use paramsSerializer to correctly handle array params like group_by[]
+    const axiosConfig = {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      paramsSerializer: (params: Record<string, unknown>) => {
+        const parts: string[] = [];
+        for (const [key, value] of Object.entries(params)) {
+          if (Array.isArray(value)) {
+            for (const v of value) {
+              parts.push(`${key}=${encodeURIComponent(String(v))}`);
+            }
+          } else if (value !== undefined && value !== null) {
+            parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+          }
+        }
+        return parts.join('&');
+      },
+    };
+
     const [usageResponse, costResponse] = await Promise.all([
       axios.get<MessageUsageResponse>(
         `${BASE_URL}/organizations/usage_report/messages`,
         {
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          ...axiosConfig,
           params: {
             starting_at: `${startDate}T00:00:00Z`,
-            ending_at: `${endDate}T23:59:59Z`,
+            ending_at: endingAt,
             bucket_width: '1d',
-            'group_by[]': ['api_key_id', 'model'],
+            limit: 31,
+            'group_by[]': ['model'],
           },
         }
       ),
       axios.get<CostReportResponse>(
         `${BASE_URL}/organizations/cost_report`,
         {
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-          },
+          ...axiosConfig,
           params: {
             starting_at: `${startDate}T00:00:00Z`,
-            ending_at: `${endDate}T23:59:59Z`,
+            ending_at: endingAt,
             bucket_width: '1d',
+            limit: 31,
           },
         }
       ),
     ]);
 
     const records: UsageRecord[] = [];
-    const usageBuckets = usageResponse.data.data || [];
-    const costBuckets = costResponse.data.data || [];
+    const usageBuckets = usageResponse.data?.data || [];
+    const costBuckets = costResponse.data?.data || [];
+
+    console.log(`Anthropic: ${usageBuckets.length} usage buckets, ${costBuckets.length} cost buckets`);
 
     // Build a daily cost map
     const dailyCosts: Record<string, number> = {};
     for (const bucket of costBuckets) {
       const date = bucket.starting_at.split('T')[0];
-      // amount is in cents as decimal string
+      // amount is in cents as decimal string — divide by 100 for dollars
       dailyCosts[date] = (dailyCosts[date] || 0) + (parseFloat(bucket.amount) || 0) / 100;
     }
 
@@ -109,7 +139,9 @@ export async function fetchAnthropicUsage(
       if (!dailyUsage[date]) {
         dailyUsage[date] = { input: 0, output: 0, model: bucket.model || 'claude-sonnet-4-20250514' };
       }
-      dailyUsage[date].input += (bucket.uncached_input_tokens || 0) + (bucket.cache_read || 0);
+      // Support both current and legacy field names
+      const cacheRead = (bucket.cache_read_input_tokens || 0) || (bucket.cache_read || 0);
+      dailyUsage[date].input += (bucket.uncached_input_tokens || 0) + cacheRead;
       dailyUsage[date].output += (bucket.output_tokens || 0);
     }
 
@@ -141,6 +173,7 @@ export async function fetchAnthropicUsage(
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const detail = JSON.stringify(error.response?.data) || error.message;
+      console.error(`Anthropic API error (HTTP ${status}):`, detail);
       throw new Error(`Anthropic API error (HTTP ${status}): ${detail}`);
     }
     throw new Error(`Anthropic fetch error: ${error instanceof Error ? error.message : String(error)}`);

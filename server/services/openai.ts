@@ -69,10 +69,13 @@ export async function fetchOpenAIUsage(
   }
 
   try {
-    const startTimestamp = Math.floor(new Date(startDate).getTime() / 1000);
-    const endTimestamp = Math.floor(new Date(endDate).getTime() / 1000);
+    const startTimestamp = Math.floor(new Date(`${startDate}T00:00:00Z`).getTime() / 1000);
+    // end_time is exclusive — use next day midnight
+    const endDateObj = new Date(`${endDate}T00:00:00Z`);
+    endDateObj.setDate(endDateObj.getDate() + 1);
+    const endTimestamp = Math.floor(endDateObj.getTime() / 1000);
 
-    // Fetch completions usage grouped by user_id and model
+    // Use paramsSerializer for correct array param handling
     const response = await axios.get<UsageResponse>(
       `${BASE_URL}/organization/usage/completions`,
       {
@@ -84,20 +87,36 @@ export async function fetchOpenAIUsage(
           start_time: startTimestamp,
           end_time: endTimestamp,
           bucket_width: '1d',
+          limit: 31,
           'group_by[]': ['user_id', 'model'],
+        },
+        paramsSerializer: (params: Record<string, unknown>) => {
+          const parts: string[] = [];
+          for (const [key, value] of Object.entries(params)) {
+            if (Array.isArray(value)) {
+              for (const v of value) {
+                parts.push(`${key}=${encodeURIComponent(String(v))}`);
+              }
+            } else if (value !== undefined && value !== null) {
+              parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+            }
+          }
+          return parts.join('&');
         },
       }
     );
 
     const records: UsageRecord[] = [];
-    const buckets = response.data.data || [];
+    const buckets = response.data?.data || [];
+
+    console.log(`OpenAI: ${buckets.length} usage buckets, ${buckets.reduce((n, b) => n + (b.results?.length || 0), 0)} results`);
 
     for (const bucket of buckets) {
       const bucketDate = new Date(bucket.start_time * 1000)
         .toISOString()
         .split('T')[0];
 
-      for (const result of bucket.results) {
+      for (const result of (bucket.results || [])) {
         // Match user_id to a team member
         const matchedMember = result.user_id
           ? members.find(
@@ -133,6 +152,7 @@ export async function fetchOpenAIUsage(
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const detail = JSON.stringify(error.response?.data) || error.message;
+      console.error(`OpenAI API error (HTTP ${status}):`, detail);
       throw new Error(`OpenAI API error (HTTP ${status}): ${detail}`);
     }
     throw new Error(`OpenAI fetch error: ${error instanceof Error ? error.message : String(error)}`);
