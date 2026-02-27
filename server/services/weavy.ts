@@ -87,19 +87,14 @@ export async function fetchWeavyUsage(
     return records;
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 404) {
-      console.warn(
-        'Weavy.ai usage API not available yet. ' +
-          'Track usage via the Weavy.ai dashboard Credits Management system.'
-      );
-    } else if (axios.isAxiosError(error)) {
-      console.error(
-        'Weavy API error:',
-        error.response?.status,
-        error.response?.data
-      );
-    } else {
-      console.error('Weavy fetch error:', error);
+      // Expected: usage endpoint doesn't exist yet
+      return [];
     }
-    return [];
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const detail = JSON.stringify(error.response?.data) || error.message;
+      throw new Error(`Weavy API error (HTTP ${status}): ${detail}`);
+    }
+    throw new Error(`Weavy fetch error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -136,14 +136,10 @@ export async function fetchGeminiUsage(
     return records;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error(
-        'Gemini Monitoring API error:',
-        error.response?.status,
-        error.response?.data
-      );
-    } else {
-      console.error('Gemini fetch error:', error);
+      const status = error.response?.status;
+      const detail = JSON.stringify(error.response?.data) || error.message;
+      throw new Error(`Gemini API error (HTTP ${status}): ${detail}`);
     }
-    return [];
+    throw new Error(`Gemini fetch error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

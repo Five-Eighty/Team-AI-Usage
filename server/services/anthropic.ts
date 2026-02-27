@@ -139,14 +139,10 @@ export async function fetchAnthropicUsage(
     return records;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error(
-        'Anthropic API error:',
-        error.response?.status,
-        error.response?.data
-      );
-    } else {
-      console.error('Anthropic fetch error:', error);
+      const status = error.response?.status;
+      const detail = JSON.stringify(error.response?.data) || error.message;
+      throw new Error(`Anthropic API error (HTTP ${status}): ${detail}`);
     }
-    return [];
+    throw new Error(`Anthropic fetch error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

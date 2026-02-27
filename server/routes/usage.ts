@@ -214,4 +214,38 @@ router.get('/status', (_req: Request, res: Response) => {
   res.json({ success: true, data: services });
 });
 
+// GET /api/usage/diagnose — test each API connection and report results
+router.get('/diagnose', async (_req: Request, res: Response) => {
+  const results: Record<string, { ok: boolean; records?: number; error?: string; keyPrefix?: string }> = {};
+
+  const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endDate = new Date().toISOString().split('T')[0];
+
+  const tests: Array<{ name: string; keyVar: string; fn: () => Promise<UsageRecord[]> }> = [
+    { name: 'claude', keyVar: 'ANTHROPIC_ADMIN_API_KEY', fn: () => fetchAnthropicUsage(startDate, endDate, teamMembers) },
+    { name: 'chatgpt', keyVar: 'OPENAI_ADMIN_API_KEY', fn: () => fetchOpenAIUsage(startDate, endDate, teamMembers) },
+    { name: 'gemini', keyVar: 'GOOGLE_CLOUD_PROJECT_ID', fn: () => fetchGeminiUsage(startDate, endDate, teamMembers) },
+    { name: 'higgsfield', keyVar: 'HIGGSFIELD_API_KEY', fn: () => fetchHiggsFieldUsage(startDate, endDate, teamMembers) },
+    { name: 'weavy', keyVar: 'WEAVY_API_KEY', fn: () => fetchWeavyUsage(startDate, endDate, teamMembers) },
+  ];
+
+  for (const test of tests) {
+    const keyValue = process.env[test.keyVar];
+    const keyPrefix = keyValue ? `${keyValue.substring(0, 8)}...` : '(not set)';
+
+    try {
+      const records = await test.fn();
+      results[test.name] = { ok: true, records: records.length, keyPrefix };
+    } catch (error) {
+      results[test.name] = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        keyPrefix,
+      };
+    }
+  }
+
+  res.json({ success: true, data: results });
+});
+
 export default router;

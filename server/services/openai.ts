@@ -131,14 +131,10 @@ export async function fetchOpenAIUsage(
     return records;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error(
-        'OpenAI API error:',
-        error.response?.status,
-        error.response?.data
-      );
-    } else {
-      console.error('OpenAI fetch error:', error);
+      const status = error.response?.status;
+      const detail = JSON.stringify(error.response?.data) || error.message;
+      throw new Error(`OpenAI API error (HTTP ${status}): ${detail}`);
     }
-    return [];
+    throw new Error(`OpenAI fetch error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

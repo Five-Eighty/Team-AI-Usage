@@ -90,20 +90,14 @@ export async function fetchHiggsFieldUsage(
     return records;
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 404) {
-      // Expected: usage endpoint may not exist yet
-      console.warn(
-        'Higgsfield usage endpoint not available. ' +
-          'Track usage via dashboard or implement request-level logging.'
-      );
-    } else if (axios.isAxiosError(error)) {
-      console.error(
-        'Higgsfield API error:',
-        error.response?.status,
-        error.response?.data
-      );
-    } else {
-      console.error('Higgsfield fetch error:', error);
+      // Expected: usage endpoint doesn't exist yet
+      return [];
     }
-    return [];
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const detail = JSON.stringify(error.response?.data) || error.message;
+      throw new Error(`Higgsfield API error (HTTP ${status}): ${detail}`);
+    }
+    throw new Error(`Higgsfield fetch error: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
