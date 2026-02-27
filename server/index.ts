@@ -25,7 +25,7 @@ app.get('/api/health', (_req, res) => {
 
 // In production, serve the Vite-built frontend
 if (isProduction) {
-  const clientDist = path.join(__dirname, '..', 'dist');
+  const clientDist = path.join(__dirname, '..', '..', 'dist');
   app.use(express.static(clientDist));
 
   // SPA fallback — serve index.html for any non-API route
